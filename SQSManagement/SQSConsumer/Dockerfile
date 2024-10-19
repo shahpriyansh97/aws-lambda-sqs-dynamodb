@@ -1,8 +1,5 @@
 FROM public.ecr.aws/lambda/nodejs:20
 
-COPY utils ./utils
-COPY lib ./lib
-
 COPY app.mjs package*.json ./
 
 RUN npm install

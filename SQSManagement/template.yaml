@@ -1,0 +1,181 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'CloudFormation template to create SQS queue, Lambda function, DynamoDB table, and IAM role'
+
+Resources:
+  UserDataDLQ:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: 'user-data-dlq'
+
+  UserDataQueue:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: 'user-data-queue'
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt UserDataDLQ.Arn
+        maxReceiveCount: 3
+
+  # DynamoDB Table
+  UserDataTable:
+    Type: 'AWS::DynamoDB::Table'
+    Properties:
+      TableName: 'UserData'
+      AttributeDefinitions:
+        - AttributeName: 'messageId'
+          AttributeType: 'S' # String type
+      KeySchema:
+        - AttributeName: 'messageId'
+          KeyType: 'HASH' # Partition key
+      BillingMode: PAY_PER_REQUEST
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaSQSPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sqs:SendMessage'
+                  - 'sqs:GetQueueUrl'
+                Resource: !GetAtt UserDataQueue.Arn
+        - PolicyName: LambdaBasicExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+
+  UserDataGenLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 20
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref UserDataQueue
+    Metadata:
+      DockerTag: nodejs20.x-v1
+      DockerContext: ./DataCreationFunction
+      Dockerfile: Dockerfile
+
+  SQSConsumerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Role: !GetAtt SQSConsumerFunctionLambdaExecutionRole.Arn
+      Timeout: 20
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref UserDataQueue
+          DYNAMODB_TABLE_NAME: !Ref UserDataTable # Pass DynamoDB table name
+    Metadata:
+      DockerTag: nodejs20.x-v1
+      DockerContext: ./SQSConsumer
+      Dockerfile: Dockerfile
+
+  UserDataQueueEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt UserDataQueue.Arn
+      FunctionName: !Ref SQSConsumerFunction
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 1
+      Enabled: true
+      FunctionResponseTypes:
+        - "ReportBatchItemFailures"
+      ScalingConfig:
+        MaximumConcurrency: 10
+
+  UserDocGenFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join [ '', [ '/aws/lambda/', !Ref SQSConsumerFunction ] ]
+      RetentionInDays: 30
+
+  SQSConsumerFunctionLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaSQSPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sqs:ReceiveMessage'
+                  - 'sqs:DeleteMessage'
+                  - 'sqs:GetQueueAttributes'
+                Resource: !GetAtt UserDataQueue.Arn
+        - PolicyName: LambdaDynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:UpdateItem'
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:DeleteItem'
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:Query'
+                Resource: !GetAtt UserDataTable.Arn
+        - PolicyName: LambdaCloudWatchPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - 'cloudwatch:PutMetricData'
+                Resource: '*'
+
+Outputs:
+  QueueURL:
+    Description: 'URL of the SQS Queue'
+    Value: !Ref UserDataQueue
+  QueueARN:
+    Description: 'ARN of the SQS Queue'
+    Value: !GetAtt UserDataQueue.Arn
+  LambdaFunctionArn:
+    Description: 'ARN of the UserDataGen Lambda Function'
+    Value: !GetAtt UserDataGenLambdaFunction.Arn
+  SQSConsumerFunctionArn:
+    Description: 'ARN of the SQSConsumer Lambda Function'
+    Value: !GetAtt SQSConsumerFunction.Arn
+  DynamoDBTableArn:
+    Description: 'ARN of the DynamoDB Table'
+    Value: !GetAtt UserDataTable.Arn

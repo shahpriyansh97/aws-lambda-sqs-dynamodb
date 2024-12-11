@@ -91,6 +91,10 @@ Resources:
         Variables:
           SQS_QUEUE_URL: !Ref UserDataQueue
           DYNAMODB_TABLE_NAME: !Ref UserDataTable # Pass DynamoDB table name
+      ReservedConcurrentExecutions: 10
+      AutoPublishAlias: live
+      ProvisionedConcurrencyConfig:
+        ProvisionedConcurrentExecutions: 10
     Metadata:
       DockerTag: nodejs20.x-v1
       DockerContext: ./SQSConsumer

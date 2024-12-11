@@ -1,0 +1,27 @@
+Below is a sample transcript that could accompany the provided architectural diagram:
+
+---
+
+Narrator: Let’s walk through the architecture shown here.
+
+Narrator: The flow starts with the DataReader Lambda Function. This Lambda is responsible for reading data from a given source. The source could be an API call, an S3 file, or some other data provider. Once it has read the data, it places that data as messages into an SQS Queue.
+
+Narrator: The purpose of this SQS Queue is to act as a buffer and a decoupling mechanism. Messages placed into this queue will be processed asynchronously. Instead of handling the data immediately, we allow the system to scale and process messages as needed, ensuring that sudden spikes in traffic do not overwhelm the downstream systems.
+
+Narrator: Next, we have a SQSConsumer Lambda Function. This function is triggered by the SQS queue. It’s configured to process messages in batches—let’s say 10 messages at a time. For each message in the batch, the SQSConsumer Lambda performs the necessary business logic, which might include data validation, transformation, and preparation for storage.
+
+Narrator: During processing, if everything goes smoothly, the function will take the processed data and insert it into a DynamoDB Table, which serves as our fast, scalable, and fully managed NoSQL database. Once the item is inserted into DynamoDB, that piece of data is considered successfully processed.
+
+Narrator: But what if there’s an error during processing? For instance, maybe the data is malformed, or some part of the logic fails unexpectedly. That’s where the Dead-Letter Queue (DLQ) comes into play. The SQSConsumer Lambda is configured with a DLQ, meaning that any messages that fail to process correctly after the configured number of retries will be moved automatically to the DLQ.
+
+Narrator: The DLQ acts as a holding area for problematic messages. By isolating these failed messages, we can analyze them later, determine the root cause of the failures, and make corrections as needed—without losing those messages entirely or halting the processing of other valid messages.
+
+Narrator: To summarize: 
+1. The DataReader Lambda reads data and sends it to the primary SQS queue.
+2. The SQS queue holds onto messages until the SQSConsumer Lambda function is ready to process them.
+3. The SQSConsumer Lambda processes messages in batches of 10. 
+   - If successful, the data goes straight into DynamoDB.
+   - If unsuccessful, after the allowed retries, the message is moved to the DLQ.
+4. Messages in the DLQ can be examined later to resolve errors or data quality issues.
+
+Narrator: This architecture helps ensure that data ingestion and processing remain stable, scalable, and fault-tolerant, accommodating fluctuating workloads and isolating problematic data for troubleshooting.

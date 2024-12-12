@@ -1,0 +1,197 @@
+**Transcript (Spoken as you type and explain the code)**
+
+*Intro:*
+"Hey everyone, welcome back to my channel! In today’s video, I’m going to walk you through a CloudFormation template that uses the AWS Serverless Transform to define some core infrastructure: an SQS queue, a dead-letter queue, a DynamoDB table, IAM roles, and a Lambda function. We’ll talk about what each resource does, and how they all work together. Let’s jump in!"
+
+*Begin typing the code:*
+"First, at the top of the file, we have:
+
+```yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+```
+
+This sets the template format version and also tells CloudFormation that we’re using the AWS Serverless Application Model (SAM) transform, which provides some shortcuts and simplifications for defining serverless resources."
+
+*Parameters section:*
+```yaml
+Parameters:
+  UserDataDLQName:
+    Type: String
+    Default: 'user-data-dlq'
+  UserDataQueueName:
+    Type: String
+    Default: 'user-data-queue'
+  UserDataTableName:
+    Type: String
+    Default: 'UserDataTable'
+  UserDataGenerationImageURI:
+    Type: String
+```
+
+"Here, I’m defining parameters that let me customize certain values when I deploy this stack. For instance, `UserDataDLQName` sets the name of the dead-letter queue, `UserDataQueueName` sets the name for my main SQS queue, `UserDataTableName` sets the name of my DynamoDB table, and `UserDataGenerationImageURI` is the container image URI for my Lambda function’s code."
+
+*Resources section:*
+"Next, we jump into the resources. This is where we define all the AWS resources that we want to create."
+
+```yaml
+  UserDataDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-${UserDataDLQName}'
+```
+
+"This creates the Dead-Letter Queue (DLQ) for our system. If messages fail to process after a certain number of retries, they end up here for later inspection."
+
+```yaml
+  UserDataQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-${UserDataQueueName}'
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt UserDataDLQ.Arn
+        maxReceiveCount: 3
+```
+
+"Here is our main SQS queue. Messages that need to be processed by our Lambda function will be placed in this queue. We set a RedrivePolicy so that any message that fails more than three times will be moved to the DLQ we just defined."
+
+```yaml
+  UserDataDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-${UserDataTableName}'
+      AttributeDefinitions:
+        - AttributeName: 'messageId'
+          AttributeType: 'S'
+      KeySchema:
+        - AttributeName: 'messageId'
+          KeyType: 'HASH'
+      BillingMode: PAY_PER_REQUEST
+```
+
+"This is our DynamoDB table, which will store the processed user data. We have a primary key called `messageId`. I’m using Pay-Per-Request billing mode, which is great because it means I don’t have to provision any capacity in advance. The table scales based on demand."
+
+```yaml
+  DataCreationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/UserDataCreationLambdaFunction'
+      RetentionInDays: 30
+
+  DataConsumerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/UserDataConsumerLambdaFunction'
+      RetentionInDays: 30
+```
+
+"Here I’m creating two Log Groups in CloudWatch Logs: one for the data creation Lambda function, and one for the data consumer Lambda. Retention is set to 30 days, so logs older than 30 days will be automatically deleted."
+
+```yaml
+  UserDataCreationIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+         - Effect: Allow
+           Principal:
+            Service:
+              - lambda.amazonaws.com
+           Action:
+            - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaSQSPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sqs:SendMessage'
+                  - 'sqs:GetQueueUrl'
+                Resource: !GetAtt UserDataQueue.Arn
+        - PolicyName: LambdaBasicLoggingPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogGroup'
+                  - 'logs:PutLogEvents'
+                Resource: !GetAtt DataCreationLogGroup.Arn
+```
+
+"This IAM role grants permissions to my data creation Lambda function. It needs the ability to send messages to the SQS queue and also to write to the log group. Notice the `Principal: Service: lambda.amazonaws.com` line, which allows the Lambda service to assume this role."
+
+```yaml
+  UserDataConsumerIamRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaSQSPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sqs:ReceiveMessage'
+                  - 'sqs:GetQueueAttributes'
+                  - 'sqs:DeleteMessage'
+                Resource: !GetAtt UserDataQueue.Arn
+        - PolicyName: LambdaDynamoDBPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:Query'
+                  - 'dynamodb:Scan'
+                  - 'dynamodb:UpdateItem'
+                Resource: !GetAtt UserDataDynamoDBTable.Arn
+        - PolicyName: LambdaBasicLoggingPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogGroup'
+                  - 'logs:PutLogEvents'
+                Resource: !GetAtt DataConsumerLogGroup.Arn
+```
+
+"This IAM role is for the Lambda function that will consume messages from the SQS queue and process them into DynamoDB. It needs permissions to receive and delete messages from the queue, and to write items to the DynamoDB table. Just like the first role, it also needs permissions for logging."
+
+```yaml
+  UserDataGenerationLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - x86_64
+      Role: !GetAtt UserDataCreationIAMRole.Arn
+      Timeout: 20
+      Environment:
+        SQS_QUEUE_URL: !Ref UserDataQueue
+      ImageUri: !Ref UserDataGenerationImageURI
+    Metadata:
+      DockerTag: nodejs20.x-v1
+      DockerContext: ./UserDataGenerator
+      Dockerfile: Dockerfile
+```
+
+"Finally, we define the Lambda function that generates user data and sends it to the queue. This function uses a container image (specified by `ImageUri`) instead of a ZIP package. We set the timeout to 20 seconds and pass the SQS queue URL as an environment variable so that the function knows where to send messages. The `Role` property references the creation IAM role we defined, so this function can send messages to the queue. In the metadata, we have some optional Docker build information that SAM can use when building our application."
+
+*Conclusion:*
+"And that’s it! With this CloudFormation template, we have everything needed to support a serverless architecture: a queue system with a DLQ for error handling, a DynamoDB table for storage, log groups for observability, IAM roles for secure access, and a Lambda function to generate and send data. From here, we could add another Lambda function to consume messages from SQS, which would then insert items into DynamoDB. This setup is scalable, fault-tolerant, and cost-effective. Thanks for watching, and I’ll see you in the next video!"

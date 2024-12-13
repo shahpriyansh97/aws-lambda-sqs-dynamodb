@@ -1,0 +1,10 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "userdata-consumer-producer"
+resolve_s3 = true
+s3_prefix = "userdata-consumer-producer"
+region = "us-west-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+parameter_overrides = "UserDataDLQName=\"user-data-dlq\" UserDataQueueName=\"user-data-queue\" UserDataTableName=\"UserDataTable\" UserDataGeneratorFunctionName=\"UserDataGeneratorFunction\" UserDataConsumerFunctionName=\"UserDataConsumerFunction\""
+image_repositories = ["UserDataGenerationLambdaFunction=021891598101.dkr.ecr.us-west-2.amazonaws.com/userdataconsumerproducer2d2e670b/userdatagenerationlambdafunction8e7a5c4drepo", "UserDataConsumerFunction=021891598101.dkr.ecr.us-west-2.amazonaws.com/userdataconsumerproducer2d2e670b/userdataconsumerfunction0e5f7d83repo"]

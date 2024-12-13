@@ -1,0 +1,17 @@
+{
+  "name": "userdatagenerator",
+  "version": "1.0.0",
+  "description": "Lambda function to generate user data and push inside to SQS Queue",
+  "main": "app.mjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "priyansh-shah",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.709.0",
+    "@faker-js/faker": "^9.3.0",
+    "split-array": "^1.0.1",
+    "uuid": "^11.0.3"
+  }
+}

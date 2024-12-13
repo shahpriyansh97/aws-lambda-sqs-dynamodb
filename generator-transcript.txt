@@ -1,0 +1,150 @@
+Welcome to our technical deep-dive! Today, we'll explore the code for a Node.js Lambda function designed to generate user records and send them to an Amazon SQS Queue in batches. Let’s break it down step by step.
+
+---
+
+### 1. Key Imports
+The function relies on three main libraries:
+1. SQS Client from `@aws-sdk/client-sqs`:  
+   Used to interact with Amazon SQS for message queuing.
+2. Faker from `@faker-js/faker`:  
+   Generates realistic fake user data, such as names, emails, and addresses.
+3. UUID from `uuid`:  
+   Creates unique IDs for each message.
+4. split-array:  
+   Splits large arrays into smaller chunks for batch processing.
+
+---
+
+### 2. Setting Up SQS
+```javascript
+const sqs = new SQS();
+```
+This initializes the SQS client. It uses AWS credentials from the Lambda environment to authenticate requests.
+
+---
+
+### 3. Environment Variable
+```javascript
+const queueUrl = process.env.SQS_QUEUE_URL;
+```
+The `SQS_QUEUE_URL` is passed to the Lambda function through an environment variable. It points to the specific SQS queue where messages will be sent.
+
+---
+
+### 4. Generating User Data
+```javascript
+for (let i = 0; i < 100; i++) {
+    const user = {
+        id: faker.string.uuid(),
+        firstName: faker.person.firstName(),
+        lastName: faker.person.lastName(),
+        email: faker.internet.email(),
+        phone: faker.phone.number(),
+        address: {
+            street: faker.address.streetAddress(),
+            city: faker.address.city(),
+            state: faker.address.state(),
+            zipCode: faker.address.zipCode(),
+            country: faker.address.country()
+        },
+        createdAt: faker.date.past().toISOString()
+    };
+```
+- The `faker` library generates a mock user with realistic details.
+- Each user has attributes such as `id`, `firstName`, `address`, etc.
+- The `createdAt` field logs when the user record was generated.
+
+#### Adding Errors for Testing
+```javascript
+if ((i + 1) % 3 === 0) {
+    user.year = Math.floor(Math.random() * 21) + 2001;
+    errorUsers += 1;
+} else {
+    user.year = Math.floor(Math.random() * 2001);
+}
+```
+- Every third user is deliberately assigned an incorrect `year` (post-2000) to simulate error cases.
+
+---
+
+### 5. Splitting the Array
+```javascript
+const splittedArray = splitArray(users, 10);
+```
+The `users` array is split into smaller arrays of 10 users each. This helps in sending messages to SQS in manageable batches.
+
+---
+
+### 6. Sending Batches to SQS
+```javascript
+const sendPromises = splittedArray.map(arr => {
+    const params = {
+        QueueUrl: queueUrl,
+        Entries: arr.map(message => ({
+            Id: uuidv4(),
+            MessageBody: JSON.stringify(message)
+        }))
+    };
+    return sqs.sendMessageBatch(params);
+});
+```
+- `sendMessageBatch`: Sends multiple messages to SQS in one API call.
+- Each `Entries` array contains:
+  - Id: A unique identifier for the message.
+  - MessageBody: The user data serialized into JSON format.
+
+---
+
+### 7. Handling Responses
+#### Sending Messages:
+```javascript
+try {
+    await Promise.all(sendPromises);
+    return {
+        statusCode: 200,
+        body: JSON.stringify({
+            message: 'Successfully sent 100 user records to SQS',
+            errorUsers
+        })
+    };
+}
+```
+- All promises from `sendMessageBatch` are resolved concurrently using `Promise.all`.
+- A success response includes the total number of error users.
+
+#### Error Handling:
+```javascript
+catch (error) {
+    console.error('Error sending Message to SQS:', error);
+    return {
+        statusCode: 500,
+        body: JSON.stringify({
+            message: 'Error sending message to SQS',
+            error: error.message
+        })
+    };
+}
+```
+- If any batch fails, the function logs the error and returns a `500` status code with the error details.
+
+---
+
+### 8. Key Features
+1. Batch Processing:  
+   The function splits 100 user records into smaller batches for efficient queuing.
+2. Error Simulation:  
+   Injects invalid data into some records for testing downstream error handling.
+3. Scalable Design:  
+   Can be extended to process larger datasets by increasing the batch size.
+
+---
+
+### 9. Real-World Use Cases
+- Automating user data processing pipelines.
+- Feeding mock data into staging environments for testing.
+- Queuing data for downstream applications like analytics or reporting.
+
+---
+
+### Closing Thoughts
+This Lambda function showcases how to handle batch operations, simulate errors, and use AWS SDKs efficiently. If you found this walkthrough helpful, please like, subscribe, and share. Drop your questions or suggestions in the comments below. See you in the next video!

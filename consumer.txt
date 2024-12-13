@@ -1,0 +1,145 @@
+### YouTube Transcript: Handling SQS Messages and Storing in DynamoDB
+
+---
+
+Welcome back to our channel! In this video, we're walking through a Node.js Lambda function that processes messages from an Amazon SQS queue, validates data, and stores valid records in DynamoDB. Let’s break it all down.
+
+---
+
+### 1. Key AWS Services Used
+This function interacts with:
+1. SQS:
+   - Fetches and processes messages from the queue.
+   - Deletes successfully processed messages.
+2. DynamoDB:
+   - Stores valid records for long-term persistence.
+
+### 2. Importing AWS SDK
+```javascript
+import AWS from "aws-sdk";
+
+const sqs = new AWS.SQS();
+const dynamoDB = new AWS.DynamoDB.DocumentClient();
+```
+The AWS SDK initializes clients for SQS and DynamoDB to handle queue and database operations.
+
+---
+
+### 3. Setting Up Environment Variables
+```javascript
+const DYNAMODB_TABLE_NAME = process.env.DYNAMODB_TABLE_NAME;
+const queueUrl = process.env.SQS_QUEUE_URL;
+```
+The table name and queue URL are injected via environment variables. This keeps the function flexible and environment-agnostic.
+
+---
+
+### 4. Main Lambda Handler
+#### Logging the Event
+```javascript
+console.log(JSON.stringify(event));
+```
+The function starts by logging the event payload for debugging and monitoring purposes.
+
+#### Batch Item Failures
+```javascript
+const batchItemFailures = [];
+```
+This array tracks messages that failed processing, enabling proper reporting for partial batch failures.
+
+---
+
+### 5. Processing SQS Messages
+The function loops through all records received in the event:
+
+```javascript
+for (let index = 0; index < Records.length; index++) {
+    const record = Records[index];
+    try {
+        const data = JSON.parse(record.body);
+        const year = data.year;
+
+        if (year > 2000) {
+            console.log(`Sending message ${record.messageId} to DLQ due to year > 2000.`);
+            throw new Error(`Year ${year} is greater than 2000 for message ${record.messageId}`);
+        }
+```
+- Each record is parsed, and the `year` attribute is validated.
+- If the `year > 2000`, an error is logged, and the message is flagged for failure.
+
+---
+
+### 6. Storing Valid Records in DynamoDB
+```javascript
+const newItem = {
+    messageId: record.messageId,
+    receiptHandle: record.receiptHandle,
+    createdAt: new Date().toISOString(),
+    year: year
+};
+
+await dynamoDB.put({
+    TableName: DYNAMODB_TABLE_NAME,
+    Item: newItem,
+}).promise();
+```
+- Valid records (where `year <= 2000`) are saved in DynamoDB.
+- The record includes the `messageId`, `receiptHandle`, `createdAt` timestamp, and `year`.
+
+---
+
+### 7. Deleting Successfully Processed Messages
+Once processing is complete, the function deletes the processed messages from the queue.
+
+```javascript
+await sqs.deleteMessageBatch({
+    Entries: entries,
+    QueueUrl: queueUrl,
+});
+```
+- The `deleteMessageBatch` method removes only successfully processed messages, preventing reprocessing.
+
+---
+
+### 8. Handling Failures
+Messages that fail validation or storage are tracked in the `batchItemFailures` array.
+
+```javascript
+batchItemFailures.push({
+    itemIdentifier: record.messageId
+});
+```
+This array is returned to indicate which records weren’t successfully processed.
+
+---
+
+### 9. Final Return Statement
+The function concludes by returning the `batchItemFailures` array.
+
+```javascript
+return {
+    batchItemFailures: batchItemFailures,
+};
+```
+- This ensures AWS knows which messages need to remain in the queue for retries.
+
+---
+
+### 10. Key Features of the Function
+1. Batch Processing: Processes multiple messages in one execution.
+2. Error Handling: Tracks and reports failed items without disrupting valid message processing.
+3. DynamoDB Integration: Efficiently stores validated records for long-term use.
+4. DLQ Redirection: Automatically moves invalid messages to a Dead Letter Queue (DLQ) for debugging.
+
+---
+
+### 11. Real-World Applications
+This pattern is widely used in:
+- Data Validation Pipelines: Preprocess and validate incoming data.
+- Error Handling Workflows: Route problematic data to DLQs for later inspection.
+- Event-Driven Architectures: Build scalable and fault-tolerant systems.
+
+---
+
+### 12. Closing Thoughts
+This Lambda function showcases how to effectively process and validate data with SQS and DynamoDB. It balances error handling, scalability, and efficiency. If you enjoyed this breakdown, like, subscribe, and let us know your thoughts in the comments below. See you in the next video!

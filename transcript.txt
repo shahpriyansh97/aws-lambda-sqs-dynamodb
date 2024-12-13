@@ -1,0 +1,95 @@
+Welcome to our YouTube video! In this episode, we're diving into an AWS CloudFormation template designed for a Serverless Application. This code demonstrates a system that processes user data using AWS services like SQS, DynamoDB, Lambda, and IAM roles for access control. Let’s break it down step by step.
+
+---
+
+1. AWS Template Basics
+At the top, we declare the AWSTemplateFormatVersion and Transform:
+- AWSTemplateFormatVersion specifies the version of the template format.
+- Transform enables the use of AWS Serverless Application Model (SAM) extensions for defining serverless resources like Lambda.
+
+---
+
+2. Parameters Section
+The `Parameters` section allows the customization of resource names. These include:
+- Dead Letter Queue (DLQ)
+- Main SQS queue
+- DynamoDB table
+- Lambda function names
+
+Default values are set, but they can be overridden during stack creation.
+
+---
+
+3. Resources Section
+Now, the main section defines all the infrastructure resources.
+
+#A. SQS Queues
+1. Dead Letter Queue (DLQ):
+   Captures failed messages that can't be processed after multiple attempts.
+   ```yaml
+   Type: AWS::SQS::Queue
+   ```
+
+2. Main Queue:
+   Configured with a Redrive Policy that sends failed messages to the DLQ after three attempts.
+   ```yaml
+   RedrivePolicy:
+     deadLetterTargetArn: !GetAtt UserDataDLQ.Arn
+     maxReceiveCount: 3
+   ```
+
+#B. DynamoDB Table
+- UserDataDynamoDBTable stores user data with:
+  - `messageId` as the partition key.
+  - PAY_PER_REQUEST billing mode for cost-efficiency.
+
+#C. IAM Roles
+1. UserDataCreationIAMRole:
+   - Allows the generation Lambda function to send messages to SQS and log to CloudWatch.
+
+2. UserDataConsumerIamRole:
+   - Grants permissions for:
+     - Reading from the queue.
+     - Writing to DynamoDB.
+     - Logging to CloudWatch.
+
+#D. Lambda Functions
+1. UserDataGenerationLambdaFunction:
+   - This function generates user data and sends it to the SQS queue.
+   - Configured with the `DockerContext` for deployment.
+
+2. UserDataConsumerFunction:
+   - Reads messages from the SQS queue and stores them in DynamoDB.
+   - The environment variables provide the queue URL and table name.
+
+Both functions use Docker images for deployment, offering flexibility in language and runtime.
+
+#E. Event Source Mapping
+- Connects the UserDataConsumerFunction to the SQS queue.
+- Configures:
+  - Batch size.
+  - Maximum concurrency.
+  - Failure reporting for better error handling.
+
+---
+
+4. Highlights of the Template
+- Dead Letter Queue: Ensures message durability and error tracking.
+- IAM Policies: Securely controls what each Lambda function can access.
+- Serverless Functions: Efficiently handles tasks without managing servers.
+- Event Source Mapping: Seamlessly integrates Lambda with SQS.
+
+---
+
+5. Real-World Applications
+This template can be used in scenarios such as:
+- Data processing pipelines.
+- Event-driven architectures.
+- Applications requiring fault tolerance and scalability.
+
+---
+
+6. Closing Thoughts
+This template exemplifies the power of serverless architecture with AWS. By leveraging managed services, you can build scalable and reliable systems with minimal effort.
+
+If you found this walkthrough helpful, don’t forget to like, subscribe, and comment below. Let us know what other AWS topics you’d like to explore. Thanks for watching!
